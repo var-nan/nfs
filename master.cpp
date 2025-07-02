@@ -30,7 +30,7 @@ void Master::start() {
 
     std::vector<ServerConnection *> chunk_servers;
 
-    // map of all clients
+    // map of all chunk servers.
     std::vector<struct pollfd> poll_args;
     while (true){
         // prepare the arguments for the poll
@@ -67,6 +67,7 @@ void Master::start() {
                 }
                 chunk_servers[cs->connection.fd] = cs;
                 std::cout << "New chunk server added" << std::endl;
+                // send id to the chunk server.
             }
         }
 

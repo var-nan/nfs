@@ -1,3 +1,6 @@
+#ifndef UTILS_H
+#define UTILS_H
+
 // stdlib
 #include <stdio.h>
 #include <assert.h>
@@ -16,6 +19,7 @@
 #include <unistd.h>
 
 #include <sys/mman.h>
+#include <sys/stat.h>
 
 #include <vector>
 #include <string>
@@ -25,6 +29,7 @@
 using namespace std;
 
 typedef uint8_t Byte;
+typedef uint32_t ip_addr;
 
 typedef struct Buffer {
     Byte *buff_begin;
@@ -102,8 +107,20 @@ void die(const string& s){
 }
 
 class Logger {
+    std::string entity;
 public:
+
+    Logger () = default;
+    
+    Logger(std::string name) : entity{name}{}
+
     void msg_errno(const string& message);
     void die(const string& message);
     void message(const string& msg);
+    void error(const string& message) {
+        
+    }
 };
+
+
+#endif // UTILS_H

@@ -1,0 +1,192 @@
+#include "utils.h"
+
+#include <atomic>
+#include <thread>
+#include <iostream>
+
+class FileObject {
+public:
+    uint32_t f_handle;
+    uint32_t chunk_id;
+    uint32_t chunk_size = 0;
+};
+
+
+#define BUFFER_SIZE 1024
+
+class Server {
+    // list of files that it contains.
+    std::unordered_map<uint32_t, FileObject> files;
+
+    int master_fd;
+    uint32_t server_id; // id of the chunk server.
+
+    std::atomic<bool> connected = {false};
+
+    std::string file_prefix = ""; // path name of chunks.
+
+    Logger log;
+
+public:
+    // connect to master.
+    Server(std::string prefix): file_prefix{prefix} {
+
+    }
+
+    void start(uint32_t master_addr){
+        if((master_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+            return ; // couldn't connect to master.
+
+        struct sockaddr_in addr;
+        addr.sin_family = AF_INET;
+        addr.sin_port = ntohs(12345);
+        addr.sin_addr.s_addr = ntohl(INADDR_LOOPBACK);
+
+        if (connect(master_fd, (const sockaddr *)&addr, sizeof(addr))){
+            return ; // couldn't connect to master.
+        }
+
+        // receive id from the master.
+        uint32_t id;
+        read(master_fd, &server_id, sizeof(server_id));
+
+
+        connected.store(true);
+
+        // MAKE THIS CONNECTION NON-BLOCKING.
+        std::vector<int> client_connections;
+        std::vector<struct pollfd> poll_args;
+
+        while (true){
+            // periodically send heartbeats to the master.
+        }
+
+    }
+
+    void acceptClients() {
+        // create nw ;
+        int client_socket = socket(AF_INET, SOCK_STREAM, 0);
+        if(client_socket < 0) return; // stop program.
+
+        int val = 1;
+        setsockopt(client_socket, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
+
+        struct sockaddr_in addr;
+        addr.sin_family = AF_INET;
+        addr.sin_port = ntohs (12345);
+        addr.sin_addr.s_addr = ntohl(0);
+
+        bind(client_socket, (const sockaddr *)&addr, sizeof(addr)); // bind the address to this socket.
+
+        make_fd_nb(client_socket);
+
+        if(listen(client_socket, SOMAXCONN)< 0){
+            log.die("listen()");
+        }
+        log.message("Chunk server ready to receive connections");
+
+
+        while (true){ // accept new client and service its request.
+            struct sockaddr_in client;
+            socklen_t addrlen = sizeof(client);
+            int client_fd = accept(client_socket, (sockaddr *)&client, &addrlen);
+            if(client_fd < 0){
+                log.die("accept()");
+            }
+            
+            log.message("Client connected" + to_string(client.sin_addr.s_addr));
+            
+            /*
+                upload: file_handle(4) chunk_id(4) 1(4) chunk_size(8) <data>......
+                get:    file_handle(4) chunk_id(4) 0(4) 
+            */
+
+            uint32_t buff[5] = {0};
+
+            read(client_fd, buff, sizeof(buff));
+
+            uint32_t f_handle = buff[0], chunk_id = buff[1], request = buff[2];
+
+            cout << "C- file handle: " << f_handle << " chunk_id: " << chunk_id << " request: " << request << endl;
+
+            if (request) { // upload request
+                std::string file_name = file_prefix + to_string(f_handle) + "_" + to_string(chunk_id);
+                int chunk_fd = open(file_name.data(), O_CREAT|O_WRONLY, 0644); // open file with permissions.
+                if(chunk_fd < 0){
+                    // return error response to client.
+                    uint32_t response[2] = {0,0};
+                    write(client_fd, response, sizeof(response));
+                    close(client_fd);
+                    log.die("open()");
+                    continue;
+                }
+
+                size_t chunk_size;
+                const size_t OFFSET = 12;
+                memcpy(&chunk_size, ((Byte *)buff) + OFFSET, sizeof(chunk_size));
+                cout << "file handle: " << f_handle << " Chunk size " << chunk_size << endl;
+
+                Byte buffer[BUFFER_SIZE];
+                size_t ncopied = 0;
+                
+                while(ncopied < chunk_size){
+                    ssize_t nread = read(client_fd, buffer, sizeof(buffer));
+                    if (nread < 0) {
+                        cout << "read failed" << endl;
+                        break;
+                    }
+                    write(chunk_fd, buffer, nread);
+                    ncopied += nread;
+                }
+                close(chunk_fd); 
+                
+                // create file object for this chunk.
+                FileObject fobj;
+                fobj.f_handle = f_handle;
+                fobj.chunk_id = chunk_id;
+                fobj.chunk_size = chunk_size;
+                files.insert({f_handle, fobj});
+
+                // write response to client
+                uint32_t response[2] = {1, 0};
+                write(client_fd, response, sizeof(response));
+                cout << "Write completed" << endl;
+            }
+            else { // read request.
+                std::string filename = file_prefix + to_string(f_handle) + "_" + to_string(chunk_id);
+                int chunk_fd = open(filename.data(), O_RDONLY);
+                if(chunk_fd < 0) {
+                    uint32_t response[2] = {0,0};
+                    write(client_fd, response, sizeof(response));
+                    log.die("open()");
+                    close(client_fd);
+                    continue;
+                }
+
+                Byte buffer[BUFFER_SIZE];
+                size_t nsent = 0, chunk_size = files[f_handle].chunk_size;
+                cout << "Sending " << chunk_size << " bytes" << endl;
+
+                uint32_t response[3] = {1, 0,0};
+                memcpy(&response[1], &chunk_size, sizeof(chunk_size));
+                write(client_fd, response, sizeof(response));
+
+                while (nsent < chunk_size){
+                    ssize_t nread = read(chunk_fd, buffer, sizeof(buffer));
+                    if (nread < 0) { break; }
+                    nsent += nread;
+                    write(client_fd, buffer, nread);
+                }
+                close(chunk_fd);
+                log.message("sent " + to_string(chunk_size) + " bytes to client");
+            }
+            close(client_fd);
+        }
+    }
+    // destructor should close master connections.
+};
+
+int main(){
+    Server server("data/");
+    server.acceptClients();
+}

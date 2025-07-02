@@ -20,9 +20,10 @@ class Client {
         while (nleft> 0) {
             if ((nread = read(chunk.fd, buffer, sizeof(buffer))) < 0){
                 logger.msg_errno("read()");
-                return ;
+                return false;
             }
-            write(connectionFd, chunk.start, chunk.size);
+            nleft -= nread;
+            write(connectionFd, buffer, nread);
         }
         return true;
     }
@@ -67,15 +68,49 @@ public:
             return; // couldn't connect to master, so fail operation.
         }
 
-        // send upload request to master
-            
-        vector<uint32_t> servers; // result of connecting to master.
+        int file_fd = open(filename.data(), O_RDONLY);
+
+        // file information.
+        struct stat f_stat; 
+        fstat(file_fd, &f_stat);
+
+        file_stat fs;
+        fs.file_size = f_stat.st_size;
+        fs.file_name = filename;
+        
+        Byte *m_buffer = (Byte *) malloc(sizeof(fs.file_size) + fs.file_name.size());
+        memcpy(m_buffer, &fs.file_size, sizeof(fs.file_size));
+        memcpy(m_buffer +sizeof(fs.file_size), fs.file_name.data(), fs.file_name.size());
+
+        // send upload request to master.
+        if(ssize_t nwritten = write(master_fd, m_buffer, fs.file_size+fs.file_name.size()); nwritten < 0){
+            logger.die("write()");
+            return ;
+        }
+
+        /* get list of ip addresses of chunk servers from the master.
+         * response: file_handle(4) n_servers(4) server_1(4) server_2(4) ..... server_n(4)
+        */
+
+        uint64_t payload;
+        read(master_fd, &payload, sizeof(uint64_t));
+
+        uint32_t f_handle = payload >> 32;
+        uint32_t nservers = payload >> 32; // TODO: change this.
+
+        m_buffer = (Byte *) realloc(m_buffer, nservers * sizeof(ip_addr));
+        read(master_fd, m_buffer, nservers * sizeof(ip_addr));
+         
         size_t chunk_size = 0;
 
+        bool transfer_completed = true;
 
-        for(int i = 0; i < servers.size(); i++){
-            // connect to chunk server.
+        for(uint32_t i = 0, offset = 0; (i < nservers) && transfer_completed; i++, offset += sizeof(ip_addr)){
+            
             int cs_fd = socket(AF_INET, SOCK_STREAM, 0); // connect to chunk server.
+
+            ip_addr server_addr;
+            memcpy(&server_addr, m_buffer + offset, sizeof(ip_addr));
 
             struct sockaddr_in addr;
             addr.sin_family = AF_INET;
@@ -83,21 +118,34 @@ public:
             addr.sin_addr.s_addr = ntohl(INADDR_LOOPBACK);
 
             if(connect(cs_fd, (const struct sockaddr *) &addr, sizeof(addr))){
-                logger.die("connect()");
-                // server might have gone down. how to handle this?
-                return;
+                logger.die("connect()"); // server might have gone down. how to handle this?
+                transfer_completed = false;
+                break; // close open file descriptors, master should clean up the incomplete files.
             }
 
-            file_chunk fc;
-            fc.offset = i*chunk_size;
-            sendChunk(cs_fd, fc);
+            // prepare chunk server to accept data. (file_handle, chunk_id, chunk_size)
+            Byte buff[sizeof(f_handle) + sizeof(i) + sizeof(chunk_size)];
+            memcpy(buff, &f_handle, sizeof(f_handle));
+            memcpy(buff+sizeof(f_handle), &i, sizeof(i));
+            memcpy(buff + sizeof(f_handle) + sizeof(i), &chunk_size, sizeof(chunk_size));
 
-            // close connection to chunk server.
+            write(cs_fd, buff, sizeof(buff)); // send metadata to sever, and prepare it.
+
+            file_chunk fc;
+            fc.fd = file_fd;
+            fc.offset = i*chunk_size;
+
+            if (!sendChunk(cs_fd, fc)) transfer_completed = false;
+
             close(cs_fd);
         }
 
-        // send commit message to master.
+        // send commit to master.
+        uint64_t status = (transfer_completed);
+        status = (status << 32) + f_handle;
+        write(master_fd, &status, sizeof(status));
 
+        close(master_fd);
     }
 
     void listFiles();
