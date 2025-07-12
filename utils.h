@@ -24,6 +24,7 @@
 #include <vector>
 #include <string>
 #include <unordered_map>
+#include <iostream>
 
 
 using namespace std;
@@ -114,11 +115,13 @@ public:
     
     Logger(std::string name) : entity{name}{}
 
-    void msg_errno(const string& message);
-    void die(const string& message);
-    void message(const string& msg);
+    void msg_errno(const string& message){ std::cout << message << std::endl;}
+    void die(const string& message) {
+        std::cout << message << std::endl;
+    }
+    void message(const string& msg){ std::cout << msg << std::endl;}
     void error(const string& message) {
-        
+        std::cout << message << std::endl; 
     }
 };
 

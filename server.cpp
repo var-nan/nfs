@@ -33,13 +33,13 @@ public:
 
     }
 
-    void start(uint32_t master_addr){
+    void start(){
         if((master_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
             return ; // couldn't connect to master.
 
         struct sockaddr_in addr;
         addr.sin_family = AF_INET;
-        addr.sin_port = ntohs(12345);
+        addr.sin_port = ntohs(1234);
         addr.sin_addr.s_addr = ntohl(INADDR_LOOPBACK);
 
         if (connect(master_fd, (const sockaddr *)&addr, sizeof(addr))){
@@ -50,6 +50,10 @@ public:
         uint32_t id;
         read(master_fd, &server_id, sizeof(server_id));
 
+        std::cout << "Connected to master, id: " << server_id << std::endl;
+
+        close(master_fd);
+        return ;
 
         connected.store(true);
 
@@ -101,9 +105,9 @@ public:
                 get:    file_handle(4) chunk_id(4) 0(4) 
             */
 
-            uint32_t buff[5] = {0};
+            uint32_t buff[5] = {0}; // TODO: make sure that get request also have five uinsinged ints.
 
-            read(client_fd, buff, sizeof(buff));
+            read(client_fd, static_cast<void *>(buff), sizeof(buff));
 
             uint32_t f_handle = buff[0], chunk_id = buff[1], request = buff[2];
 
@@ -122,20 +126,20 @@ public:
                 }
 
                 size_t chunk_size;
-                const size_t OFFSET = 12;
-                memcpy(&chunk_size, ((Byte *)buff) + OFFSET, sizeof(chunk_size));
+                const size_t OFFSET = 3; // three unsigned ints.
+                memcpy(static_cast<void *>(&chunk_size), static_cast<void *>(buff + OFFSET), sizeof(chunk_size));
                 cout << "file handle: " << f_handle << " Chunk size " << chunk_size << endl;
 
                 Byte buffer[BUFFER_SIZE];
                 size_t ncopied = 0;
                 
                 while(ncopied < chunk_size){
-                    ssize_t nread = read(client_fd, buffer, sizeof(buffer));
+                    ssize_t nread = read(client_fd, static_cast<void *>(buffer), sizeof(buffer));
                     if (nread < 0) {
                         cout << "read failed" << endl;
                         break;
                     }
-                    write(chunk_fd, buffer, nread);
+                    write(chunk_fd, static_cast<void *>(buffer), nread);
                     ncopied += nread;
                 }
                 close(chunk_fd); 
@@ -149,7 +153,7 @@ public:
 
                 // write response to client
                 uint32_t response[2] = {1, 0};
-                write(client_fd, response, sizeof(response));
+                write(client_fd, static_cast<void *>(response), sizeof(response));
                 cout << "Write completed" << endl;
             }
             else { // read request.
@@ -157,7 +161,7 @@ public:
                 int chunk_fd = open(filename.data(), O_RDONLY);
                 if(chunk_fd < 0) {
                     uint32_t response[2] = {0,0};
-                    write(client_fd, response, sizeof(response));
+                    write(client_fd, static_cast<void *>(response), sizeof(response));
                     log.die("open()");
                     close(client_fd);
                     continue;
@@ -168,14 +172,14 @@ public:
                 cout << "Sending " << chunk_size << " bytes" << endl;
 
                 uint32_t response[3] = {1, 0,0};
-                memcpy(&response[1], &chunk_size, sizeof(chunk_size));
-                write(client_fd, response, sizeof(response));
+                memcpy(static_cast<void *>(&response[1]), static_cast<void *>(&chunk_size), sizeof(chunk_size));
+                write(client_fd, static_cast<void *>(response), sizeof(response));
 
                 while (nsent < chunk_size){
-                    ssize_t nread = read(chunk_fd, buffer, sizeof(buffer));
+                    ssize_t nread = read(chunk_fd, static_cast<void *>(buffer), sizeof(buffer));
                     if (nread < 0) { break; }
                     nsent += nread;
-                    write(client_fd, buffer, nread);
+                    write(client_fd, static_cast<void *>(buffer), nread);
                 }
                 close(chunk_fd);
                 log.message("sent " + to_string(chunk_size) + " bytes to client");
@@ -188,5 +192,6 @@ public:
 
 int main(){
     Server server("data/");
-    server.acceptClients();
+    server.start();
+    //server.acceptClients();
 }

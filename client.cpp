@@ -14,7 +14,7 @@ class Client {
         // }
         
         // use read sys call 
-        Byte buffer[1024*1024*16]; // temporary buffer.
+        Byte buffer[1024*16]; // temporary buffer. 16 kB
         ssize_t nread;
         size_t nleft = chunk.size;
         while (nleft> 0) {
@@ -22,6 +22,7 @@ class Client {
                 logger.msg_errno("read()");
                 return false;
             }
+            if(nread == 0) break;
             nleft -= nread;
             write(connectionFd, buffer, nread);
         }
@@ -61,7 +62,7 @@ public:
 
         struct sockaddr_in master_addr;
         master_addr.sin_family = AF_INET;
-        master_addr.sin_port = ntohs(1233);
+        master_addr.sin_port = ntohs(1234);
         master_addr.sin_addr.s_addr = ntohl(INADDR_LOOPBACK);
         if (connect(master_fd, (const sockaddr *)&master_addr, sizeof(master_addr))){
             logger.die("master connect()");
@@ -79,11 +80,12 @@ public:
         fs.file_name = filename;
         
         Byte *m_buffer = (Byte *) malloc(sizeof(fs.file_size) + fs.file_name.size());
-        memcpy(m_buffer, &fs.file_size, sizeof(fs.file_size));
-        memcpy(m_buffer +sizeof(fs.file_size), fs.file_name.data(), fs.file_name.size());
+        memcpy(static_cast<void *>(m_buffer), static_cast<void *>(&fs.file_size), sizeof(fs.file_size));
+        memcpy(static_cast<void *>(m_buffer +sizeof(fs.file_size)), 
+            static_cast<void *>(fs.file_name.data()), fs.file_name.size());
 
         // send upload request to master.
-        if(ssize_t nwritten = write(master_fd, m_buffer, fs.file_size+fs.file_name.size()); nwritten < 0){
+        if(ssize_t nwritten = write(master_fd, static_cast<void *>(m_buffer), fs.file_size+fs.file_name.size()); nwritten < 0){
             logger.die("write()");
             return ;
         }
@@ -93,15 +95,20 @@ public:
         */
 
         uint64_t payload;
-        read(master_fd, &payload, sizeof(uint64_t));
+        read(master_fd, static_cast<void *>(&payload), sizeof(uint64_t));
 
         uint32_t f_handle = payload >> 32;
-        uint32_t nservers = payload >> 32; // TODO: change this.
+        uint32_t mask = ~0;
+        uint32_t nservers = (payload & mask); // should extract last 32 bits.
 
-        m_buffer = (Byte *) realloc(m_buffer, nservers * sizeof(ip_addr));
-        read(master_fd, m_buffer, nservers * sizeof(ip_addr));
+        if (nservers == 0) {
+            // error from server.
+        }
+
+        m_buffer = (Byte *) realloc(static_cast<void *>(m_buffer), nservers * sizeof(ip_addr));
+        read(master_fd, static_cast<void *>(m_buffer), nservers * sizeof(ip_addr));
          
-        size_t chunk_size = 0;
+        size_t chunk_size = (fs.file_size + nservers - 1)/nservers; // compute chunk_size based on nservers.
 
         bool transfer_completed = true;
 
@@ -110,11 +117,12 @@ public:
             int cs_fd = socket(AF_INET, SOCK_STREAM, 0); // connect to chunk server.
 
             ip_addr server_addr;
-            memcpy(&server_addr, m_buffer + offset, sizeof(ip_addr));
+            memcpy((void *)&server_addr,(void *)(m_buffer + offset), sizeof(ip_addr));
+            // TODO: instead of memcpy, why not use reinterpret cast to cast to ints directly?
 
             struct sockaddr_in addr;
             addr.sin_family = AF_INET;
-            addr.sin_port = ntohs(1234);
+            addr.sin_port = ntohs(12345);
             addr.sin_addr.s_addr = ntohl(INADDR_LOOPBACK);
 
             if(connect(cs_fd, (const struct sockaddr *) &addr, sizeof(addr))){
@@ -129,7 +137,7 @@ public:
             memcpy(buff+sizeof(f_handle), &i, sizeof(i));
             memcpy(buff + sizeof(f_handle) + sizeof(i), &chunk_size, sizeof(chunk_size));
 
-            write(cs_fd, buff, sizeof(buff)); // send metadata to sever, and prepare it.
+            write(cs_fd, (void *)buff, sizeof(buff)); // send metadata to sever, and prepare it.
 
             file_chunk fc;
             fc.fd = file_fd;
@@ -154,7 +162,7 @@ public:
 
 
 int main(){
-    string filename;
+    string filename = "/home/nandgate/javadocs/cppdocs/sharder/data/text_file";
 
     Client client;
     client.upload(filename);

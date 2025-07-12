@@ -26,12 +26,14 @@ void Master::start() {
     if(listen(fd, SOMAXCONN)) 
         die("listen()");
 
-    printf("Server started listening...\n");
+    printf("Master started listening...\n");
 
     std::vector<ServerConnection *> chunk_servers;
 
     // map of all chunk servers.
     std::vector<struct pollfd> poll_args;
+    uint32_t cur_server = 0;
+
     while (true){
         // prepare the arguments for the poll
         poll_args.clear();
@@ -66,10 +68,14 @@ void Master::start() {
                     chunk_servers.resize(cs->connection.fd+1);
                 }
                 chunk_servers[cs->connection.fd] = cs;
-                std::cout << "New chunk server added" << std::endl;
+                std::cout << "New chunk server added. fd:" << cs->connection.fd << std::endl;
                 // send id to the chunk server.
+                write(cs->connection.fd, (void *)&cur_server, sizeof(cur_server));
+                cur_server++;
+                
             }
         }
+        // continue; // servers will not send any data to master.
 
         // handle the other sockets
         size_t nProcessed = 0; // early stop if all ready sockets are processed.
@@ -90,6 +96,7 @@ void Master::start() {
             // close the socket from socket error or appliation logic. ideally chunk servers should not crash.
             if((ready & POLLERR) || cs->connection.want_close){
                 (void) close(cs->connection.fd);
+                std::cout << "Error from server: " << cs->connection.fd << std::endl;
                 // call destructors.
             }
         }
@@ -167,4 +174,10 @@ void Master::startAcceptingClients(){
     addr.sin_port = ntohs(1235);
     addr.sin_addr.s_addr = ntohl(0); // wildcard address.
 
+}
+
+int main(){
+    Master master;
+    master.start();
+    return 0;
 }
