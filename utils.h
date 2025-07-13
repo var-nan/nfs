@@ -66,10 +66,10 @@ public:
 
 class ServerInfo{
 public:
-    size_t value;
-    size_t max_space;
-    size_t used;
-    size_t files;
+    uint32_t value; // IP address?
+    uint32_t max_space;
+    uint32_t used;
+    uint32_t files;
 
     ServerInfo() = default;
 };
@@ -80,6 +80,7 @@ public:
 
     Connection connection;
     ServerInfo info;
+    ip_addr address;
     // need to define destructor?
 };
 

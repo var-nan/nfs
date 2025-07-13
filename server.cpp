@@ -26,6 +26,7 @@ class Server {
     std::string file_prefix = ""; // path name of chunks.
 
     Logger log;
+    ServerInfo this_server_info;
 
 public:
     // connect to master.
@@ -45,15 +46,16 @@ public:
         if (connect(master_fd, (const sockaddr *)&addr, sizeof(addr))){
             return ; // couldn't connect to master.
         }
+        // send server info to the master.
+        write(master_fd, (const void *)&this_server_info, sizeof(this_server_info));
 
-        // receive id from the master.
-        uint32_t id;
-        read(master_fd, &server_id, sizeof(server_id));
+        uint32_t id; // receive id from the master.
+        read(master_fd, (void *)&server_id, sizeof(server_id));
 
         std::cout << "Connected to master, id: " << server_id << std::endl;
 
-        close(master_fd);
-        return ;
+        // close(master_fd);
+        // return ;
 
         connected.store(true);
 
@@ -61,8 +63,13 @@ public:
         std::vector<int> client_connections;
         std::vector<struct pollfd> poll_args;
 
+        size_t hb = 0;
         while (true){
             // periodically send heartbeats to the master.
+            sleep(2);
+            write(master_fd, (const void *)&this_server_info, sizeof(this_server_info));
+            std::cout << "sent heartbeat " << hb++ << std::endl;
+            // TODO: Handle error later.
         }
 
     }
