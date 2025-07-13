@@ -9,6 +9,9 @@ using namespace std;
 
 class Master{
 
+    /* @brief Contains list of servers that contains the chunks of this file.
+        Chunk size is also included. 
+    */
     typedef struct {
         std::string filename;
         std::vector<std::pair<ip_addr, uint32_t>> chunks;
@@ -19,7 +22,9 @@ class Master{
 
     size_t available_space;
 
-    std::unordered_map<uint32_t, client_file> all_files;
+    std::unordered_map<uint32_t, client_file> all_files; // mapping of file handle and chunks information.
+
+    std::atomic<bool> acceptClients = {false};
     
 public:
 

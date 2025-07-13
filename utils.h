@@ -26,6 +26,9 @@
 #include <unordered_map>
 #include <iostream>
 
+#include <thread>
+#include <atomic>
+
 
 using namespace std;
 
@@ -107,6 +110,21 @@ void make_fd_nb(int fd){
 void die(const string& s){
 
 }
+
+enum RESPONSE{
+    ACCEPTED = 0x0u,
+    INSUFFICIENT_SPACE = 0x1u,
+    OKAY = 0x2u,
+    FILE_NOT_FOUND = 0x4u,
+    FILE_FOUND = 0x5u
+};
+
+enum REQUEST{
+    UPLOAD = 0x0u,
+    DOWNLOAD = 0x1u,
+    UPLOAD_ACK = 0x2u,
+    UPLOAD_FAILED = 0x4u,
+};
 
 class Logger {
     std::string entity;

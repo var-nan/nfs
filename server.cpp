@@ -31,7 +31,10 @@ class Server {
 public:
     // connect to master.
     Server(std::string prefix): file_prefix{prefix} {
-
+        this_server_info.files = 0;
+        this_server_info.max_space = (1<<30);
+        this_server_info.used = 0;
+        this_server_info.value = 0;
     }
 
     void start(){
