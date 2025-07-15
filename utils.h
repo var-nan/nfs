@@ -28,6 +28,7 @@
 
 #include <thread>
 #include <atomic>
+#include <mutex>
 
 
 using namespace std;
@@ -87,21 +88,25 @@ public:
     // need to define destructor?
 };
 
+#define MASTER_CLIENT_PORT 12345
+#define MASTER_SERVER_PORT 22345
+#define SERVER_CLIENT_PORT 32345
+
 
 typedef struct {
-    size_t size; // size of chunk.
-    size_t offset; // offset of chunk from the start
+    uint32_t size; // size of chunk.
+    uint32_t offset; // offset of chunk from the start
     void *start; // starting address of chunk.
     int fd; // file descriptor.
 } file_chunk;
 
 typedef struct {
-    size_t file_size;
+    uint32_t file_size;
     string file_name;
 } file_stat;
 
 typedef struct {
-    uint64_t ip_addr;
+    uint32_t ip_addr;
 } server;
 
 void make_fd_nb(int fd){
@@ -111,19 +116,47 @@ void die(const string& s){
 
 }
 
-enum RESPONSE{
-    ACCEPTED = 0x0u,
-    INSUFFICIENT_SPACE = 0x1u,
-    OKAY = 0x2u,
-    FILE_NOT_FOUND = 0x4u,
-    FILE_FOUND = 0x5u
+// enum RESPONSE{
+//     ACCEPTED = 0x0u,
+//     INSUFFICIENT_SPACE = 0x1u,
+//     OKAY = 0x2u,
+//     FILE_NOT_FOUND = 0x4u,
+//     FILE_FOUND = 0x5u
+// };
+
+// enum REQUEST{
+//     UPLOAD = 0x0u,
+//     DOWNLOAD = 0x1u,
+//     UPLOAD_ACK = 0x2u,
+//     UPLOAD_FAILED = 0x4u,
+// };
+
+
+
+enum class MASTER_CLIENT : uint32_t{
+    ACCEPTED = 0X0U,
+    INSUFFICIENT_SPACE = 0X1U,
+    OKAY = 0X2U,
+    FILE_NOT_FOUND = 0X4U,
+    FILE_FOUND = 0X5U,
+
+    UPLOAD = 0X7U,
+    DOWNLOAD = 0X8U,
+    UPLOAD_ACK = 0X9U,
+    UPLOAD_FAILED = 0xAU
 };
 
-enum REQUEST{
+enum class MASTER_SERVER : uint32_t{
+    OKAY = 0X2u,
+};
+
+enum class SERVER_CLIENT : uint32_t{
     UPLOAD = 0x0u,
-    DOWNLOAD = 0x1u,
-    UPLOAD_ACK = 0x2u,
-    UPLOAD_FAILED = 0x4u,
+    DOWNLOAD = 0X1U,
+    FILE_DELETE = 0X2U,
+    OKAY = 0X4U,
+    FILE_NOT_FOUND = 0X5U,
+    ERROR = 0x6U
 };
 
 class Logger {

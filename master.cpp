@@ -13,7 +13,7 @@ void Master::start() {
 
     struct sockaddr_in addr = {};
     addr.sin_family = AF_INET;
-    addr.sin_port = ntohs(1234);
+    addr.sin_port = ntohs(MASTER_SERVER_PORT);
     addr.sin_addr.s_addr = ntohl(0); // wild card address
 
     // bind the socket
@@ -26,14 +26,15 @@ void Master::start() {
     if(listen(fd, SOMAXCONN)) 
         die("listen()");
 
-    printf("Master started listening...\n");
+    logger.message("Master listening for servers on port "+to_string(MASTER_SERVER_PORT));
 
-    std::vector<ServerConnection *> chunk_servers;
+    // std::vector<ServerConnection *> chunk_servers;
 
     // map of all chunk servers.
     std::vector<struct pollfd> poll_args;
     uint32_t cur_server = 0;
 
+    /* accept new server connections and receive heartbeat messages from servers. */
     while (true){
         // prepare the arguments for the poll
         poll_args.clear();
@@ -67,18 +68,22 @@ void Master::start() {
             /* for a new connection from server, the server will send its information
                 as ServerInfo object. The master assigns a id and sends it to as response.*/
             if (ServerConnection *cs = handleNewConnection(fd)){
-                if(chunk_servers.size() <= (size_t)(cs->connection).fd){
-                    chunk_servers.resize(cs->connection.fd+1);
-                }
-                chunk_servers[cs->connection.fd] = cs;
+                // if(chunk_servers.size() <= (size_t)(cs->connection).fd){
+                //     chunk_servers.resize(cs->connection.fd+1);
+                // }
+                // chunk_servers[cs->connection.fd] = cs;
+
+                // push new connectios to the end
+                chunk_servers.push_back(cs);
+
                 logger.message("Server added. Fd: "+ to_string(cs->connection.fd)
-                    + " Ip: "+to_string(cs->address));
+                    + " Ip: "+to_string(cs->address) + " total: " + to_string(chunk_servers.size()));
                 read(cs->connection.fd, (void *)&(cs->info),sizeof(cs->info));
 
                 write(cs->connection.fd, (const void *)&cur_server, sizeof(cur_server));
                 cur_server++; // TODO: change index from fd to cur_server.
                 
-                if (cur_server == 2){ // master can service client requests.
+                if (cur_server == 1){ // master can service client requests.
                     acceptClients.store(true);
                     acceptClients.notify_one();
                 }
@@ -91,7 +96,7 @@ void Master::start() {
             uint32_t ready = poll_args[i].revents;
             if (!ready) continue;
 
-            ServerConnection *cs = chunk_servers[poll_args[i].fd];
+            ServerConnection *cs = chunk_servers[i-1];
             if(ready & POLLIN) { // socket is ready for reading.
                 assert(cs->connection.want_read);
                 handleServerRead(cs);
@@ -125,7 +130,7 @@ ServerConnection *Master::handleNewConnection (int fd) {
     ServerConnection *cs = new ServerConnection();
     cs->connection.fd = connfd;
     cs->connection.want_read = true;
-    cs->address = client.sin_addr.s_addr;
+    cs->address = ntohl(client.sin_addr.s_addr);
     // TODO:: initialize buffer
     return cs;
 }
@@ -142,9 +147,9 @@ void Master::handleServerRead(ServerConnection *cs){
     else if (nread == 0)
         return ;
     
-    logger.message("Heartbeat: " + std::to_string(cs->address) + " Files: " +
-        std::to_string(heartbeat.files)+ ". Used:" + std::to_string(heartbeat.used) + 
-        " bytes. Max Space: " + std::to_string(heartbeat.max_space)+" bytes.");
+    // logger.message("Heartbeat: " + std::to_string(cs->address) + " Files: " +
+    //     std::to_string(heartbeat.files)+ ". Used:" + std::to_string(heartbeat.used) + 
+    //     " bytes. Max Space: " + std::to_string(heartbeat.max_space)+" bytes.");
 
     // update server info locally.
     cs->info = heartbeat;
@@ -152,14 +157,16 @@ void Master::handleServerRead(ServerConnection *cs){
     /*  The communication between the master and the server is one-direction. The assumption 
         is that the master never crashes. So the server always finds the master.
     */
+
+    // TODO: respond to heartbeat messages.
     cs->connection.want_read = true;
 }
 
 
 void Master::startAcceptingClients(){
 
-    acceptClients.wait(false);
-    std::cout << "Master can start accpeting clients" << std::endl;
+    acceptClients.wait(false); // wait until servers are connected.
+
     int fd = socket(AF_INET, SOCK_STREAM, 0); // listening socket
     if (fd < 0)
         die("socket()");
@@ -169,7 +176,7 @@ void Master::startAcceptingClients(){
 
     struct sockaddr_in addr = {};
     addr.sin_family = AF_INET;
-    addr.sin_port = ntohs(1235);
+    addr.sin_port = ntohs(MASTER_CLIENT_PORT);
     addr.sin_addr.s_addr = ntohl(0); // wildcard address.
 
     // start accepting clients
@@ -179,7 +186,7 @@ void Master::startAcceptingClients(){
     if(listen(fd, SOMAXCONN) < 0)
         logger.die("listen()");
 
-    std::cout << "Master started listening for client connections" << std::endl;
+    logger.message("Master listening for client connections.. on " + std::to_string(MASTER_CLIENT_PORT));
 
     std::vector<Byte> filename_buffer;
     std::vector<std::pair<ip_addr, uint32_t>> chunks_buffer;
@@ -191,7 +198,7 @@ void Master::startAcceptingClients(){
     while(true){
         // all client connections are one-time.
         /*
-            upload <filename> <filesize> -> status <filehandle> <nservers> [<server_1, chunksize>, <server_2, chunksize> ... ]
+            upload <filesize> <filenamesize> <filename> -> status <filehandle> <nservers> [<server_1, chunksize>, <server_2, chunksize> ... ]
             upload_ack <filehandle> -> status
             download <filehandle> -> status <nservers> [<server_1, chunksize>, <server_2, chunksize>]
         */
@@ -203,23 +210,24 @@ void Master::startAcceptingClients(){
         if (clientfd < 0)
             logger.die("accept");
 
-        std::cout << "Connected a client" << std::endl;
+        logger.message("Client connected. " + std::to_string(addr.sin_addr.s_addr));
 
         // read from client
-        int request_type;
-        if(ssize_t nread = read(clientfd, &request_type, sizeof(request_type)); nread < 0) {
+        enum MASTER_CLIENT request_type;
+        if(ssize_t nread = read(clientfd, (void *)&request_type, sizeof(request_type)); nread < 0) {
             // break;
         }
         
-        if(request_type == REQUEST::UPLOAD) { // upload
+        if(request_type == MASTER_CLIENT::UPLOAD) { // upload
+            std::cout << "Received upload request" << std::endl;
             // read filename and filesize.
             uint32_t filesize;
             read(clientfd, &filesize, sizeof(filesize));
             
             if(!is_enough_space(filesize)){
-                uint32_t status = RESPONSE::INSUFFICIENT_SPACE;
+                enum MASTER_CLIENT status = MASTER_CLIENT::INSUFFICIENT_SPACE;
                 write(clientfd, &status, sizeof(status));
-                goto close_conn;
+                goto close_conn; // what happens to unread data in read buffer?
             }
 
             uint32_t filenamesize;
@@ -229,20 +237,27 @@ void Master::startAcceptingClients(){
                 filename_buffer.resize(filenamesize);
             read(clientfd, filename_buffer.data(), filenamesize);
 
+            std::cout<< "upload - filesize: " << filesize << " file name size: " << filenamesize << std::endl;
+            
             // return list of servers
-            uint32_t status = RESPONSE::OKAY;
+            auto status = MASTER_CLIENT::OKAY;
             uint32_t handle = next_handle++;
 
             { // TODO: populate chunk_buffer based on chunk availability.
                 auto& f = all_files[handle];
+
+                std::cout << "server size: " << chunk_servers.size() << std::endl;
             
-                uint32_t chunk_size = (filesize + chunks_servers.size()-1)/chunks_servers.size();
-                for (size_t i = 0, rem_sz = filesize; i < chunks_servers.size(); i++, rem_sz-= chunk_size){
-                    auto& file_server = chunks_servers[i];
-                    file_server.info.used -= chunk_size;
+                uint32_t chunk_size = (filesize + chunk_servers.size()-1)/chunk_servers.size();
+                std::cout << "Chunk size: " << chunk_size << std::endl;
+                // todo: change the order of chunk servers for each file.
+                // if the last server doesn't have any chunk, the loop will exit without adding to metadata.
+                for (size_t i = 0, rem_sz = filesize; i < chunk_servers.size(); i++, rem_sz-= chunk_size){
+                    auto file_server = chunk_servers[i];
+                    file_server->info.used -= chunk_size;
                     if(rem_sz >= chunk_size)
-                        f.chunks.emplace_back(file_server.address, chunk_size);
-                    else f.chunks.emplace_back(file_server.address, chunk_size-rem_sz);
+                        f.chunks.emplace_back(file_server->address, chunk_size);
+                    else f.chunks.emplace_back(file_server->address, chunk_size-rem_sz);
                 }
                 f.filename = std::string(filename_buffer.begin(), filename_buffer.end());
                 available_space -= filesize; // dont' think necessary here. but wait. not soon.
@@ -256,10 +271,10 @@ void Master::startAcceptingClients(){
             write(clientfd, &nservers, sizeof(nservers));
             write(clientfd, chunks.data(), sizeof(chunks[0])* nservers);
         }
-        else if (request_type == REQUEST::UPLOAD_ACK){ // upload ack
+        else if (request_type == MASTER_CLIENT::UPLOAD_ACK){ // upload ack
 
         }
-        else if (request_type == REQUEST::UPLOAD_FAILED){
+        else if (request_type == MASTER_CLIENT::UPLOAD_FAILED){
             // if uploading failed, then undo bookeeping for the file.
             // inform all servers and remove file handle.
             uint32_t fhandle;
@@ -267,17 +282,17 @@ void Master::startAcceptingClients(){
             // so communication must be two-sided. ughhhh.
 
         }
-        else if (request_type == REQUEST::DOWNLOAD){ // download
+        else if (request_type == MASTER_CLIENT::DOWNLOAD){ // download
             uint32_t handle;
             read(clientfd, &handle, sizeof(handle));
 
             auto pos = all_files.find(handle);
             if(pos == all_files.end()){
-                uint32_t status = RESPONSE::FILE_NOT_FOUND;
+                auto status = MASTER_CLIENT::FILE_NOT_FOUND;
                 write(clientfd, &status, sizeof(status)); 
             }
             else {
-                uint32_t status = RESPONSE::FILE_FOUND;
+                auto status = MASTER_CLIENT::FILE_FOUND;
                 const auto& chunks = (pos->second).chunks;
                 uint32_t nservers = chunks.size();
                 write(clientfd, &status, sizeof(status));

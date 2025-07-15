@@ -9,6 +9,6 @@ set(SOURCES master.cpp server.cpp client.cpp)
 
 add_executable(master master.cpp)
 add_executable(server server.cpp)
-# add_executable(client client.cpp)
+add_executable(client client.cpp)
 
 

@@ -1,4 +1,5 @@
-
+#ifndef MASTER_H
+#define MASTER_H
 
 #include "utils.h"
 #include <iostream>
@@ -17,7 +18,7 @@ class Master{
         std::vector<std::pair<ip_addr, uint32_t>> chunks;
     } client_file;
 
-    std::vector<ServerConnection> chunks_servers;
+    std::vector<ServerConnection *> chunk_servers;
     Logger logger;
 
     size_t available_space;
@@ -41,3 +42,5 @@ public:
 
 
 };
+
+#endif // MASTER_H
