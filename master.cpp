@@ -78,6 +78,8 @@ void Master::start() {
 
                 logger.message("Server added. Fd: "+ to_string(cs->connection.fd)
                     + " Ip: "+to_string(cs->address) + " total: " + to_string(chunk_servers.size()));
+                // read port information 
+                read(cs->connection.fd, (void *)&(cs->port), sizeof(cs->port));
                 read(cs->connection.fd, (void *)&(cs->info),sizeof(cs->info));
 
                 write(cs->connection.fd, (const void *)&cur_server, sizeof(cur_server));
@@ -252,12 +254,13 @@ void Master::startAcceptingClients(){
                 std::cout << "Chunk size: " << chunk_size << std::endl;
                 // todo: change the order of chunk servers for each file.
                 // if the last server doesn't have any chunk, the loop will exit without adding to metadata.
-                for (size_t i = 0, rem_sz = filesize; i < chunk_servers.size(); i++, rem_sz-= chunk_size){
+                for (ssize_t i = 0, rem_sz = filesize; (i < chunk_servers.size()) && (rem_sz > 0); 
+                                                i++, rem_sz-= chunk_size){
                     auto file_server = chunk_servers[i];
                     file_server->info.used -= chunk_size;
-                    if(rem_sz >= chunk_size)
-                        f.chunks.emplace_back(file_server->address, chunk_size);
-                    else f.chunks.emplace_back(file_server->address, chunk_size-rem_sz);
+                    uint32_t sz = (rem_sz >= chunk_size) ? chunk_size : (chunk_size - rem_sz);
+                    std::cout << "cs: " << sz << std::endl;
+                    f.chunks.emplace_back(file_server->address, sz, file_server->port);
                 }
                 f.filename = std::string(filename_buffer.begin(), filename_buffer.end());
                 available_space -= filesize; // dont' think necessary here. but wait. not soon.

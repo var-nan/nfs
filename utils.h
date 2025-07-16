@@ -85,6 +85,7 @@ public:
     Connection connection;
     ServerInfo info;
     ip_addr address;
+    uint32_t port;
     // need to define destructor?
 };
 

@@ -15,7 +15,7 @@ class Master{
     */
     typedef struct {
         std::string filename;
-        std::vector<std::pair<ip_addr, uint32_t>> chunks;
+        std::vector<std::tuple<ip_addr, uint32_t, uint32_t>> chunks;
     } client_file;
 
     std::vector<ServerConnection *> chunk_servers;

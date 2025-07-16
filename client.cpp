@@ -115,28 +115,30 @@ public:
         read(master_fd, (void *)&f_handle, sizeof(f_handle));
         read(master_fd, (void *)&nservers, sizeof(nservers));
 
-        uint32_t payload_size = nservers * (sizeof(ip_addr) + sizeof(uint32_t));
-        std::vector<std::pair<ip_addr, uint32_t>> servers(nservers);
+        uint32_t payload_size = nservers * (sizeof(ip_addr) + sizeof(uint32_t) + sizeof(uint32_t));
+        std::vector<std::tuple<ip_addr, uint32_t, uint32_t>> servers(nservers);
         // servers.resize(nservers);
         read(master_fd, (void *)servers.data(), payload_size);
 
         std::cout <<"Nservers: " << nservers << std::endl;
-        for (const auto& p : servers) 
-            std::cout << " [" << p.first << " , " << p.second << "] ";
-        std::cout << std::endl;
+        for (const auto& p : servers) {
+            auto [addr, chunk_size, port] = p;
+            std::cout << " [" << addr << ", " << chunk_size << ", " << port << "] ";
+        } std::cout << std::endl;
 
         bool transfer_completed = true;
 
         for(uint32_t i = 0, offset = 0; (i < nservers) && transfer_completed; i++, offset += sizeof(ip_addr)){
             
-            ip_addr server_addr = servers[i].first;
-            uint32_t chunk_size = servers[i].second;
+            auto [server_addr, chunk_size, port] = servers[i];
+            // ip_addr server_addr = servers[i].first;
+            // uint32_t chunk_size = servers[i].second;
 
             int cs_fd = socket(AF_INET, SOCK_STREAM, 0);
 
             struct sockaddr_in addr;
             addr.sin_family = AF_INET;
-            addr.sin_port = ntohs(SERVER_CLIENT_PORT);
+            addr.sin_port = ntohs(port);
             addr.sin_addr.s_addr = ntohl(server_addr);
 
             if(connect(cs_fd, (const struct sockaddr *) &addr, sizeof(addr))){
@@ -148,7 +150,7 @@ public:
             std::cout << "Connected to server: " << std::endl;
 
             // prepare chunk server to accept data. (request_type, file_handle, chunk_id, chunk_size)
-            uint32_t buff[4] = {static_cast<uint32_t>(SERVER_CLIENT::UPLOAD), f_handle, i, chunk_size};
+            uint32_t buff[] = {static_cast<uint32_t>(SERVER_CLIENT::UPLOAD), f_handle, i, chunk_size};
             write(cs_fd, (void *)buff, sizeof(buff));
 
             file_chunk fc;

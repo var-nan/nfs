@@ -2,6 +2,9 @@
 
 
 void Server::start(){
+
+    master_connect.wait(false);
+
     if((master_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
         return ; // couldn't connect to master.
 
@@ -14,6 +17,7 @@ void Server::start(){
         return ; // couldn't connect to master.
     }
     // send server info to the master.
+    write(master_fd, (const void *)&client_port, sizeof(client_port));
     write(master_fd, (const void *)&this_server_info, sizeof(this_server_info));
 
     uint32_t id; // receive id from the master.
@@ -21,8 +25,8 @@ void Server::start(){
 
     std::cout << "Connected to master, id: " << server_id << std::endl;
 
-    connected.store(true);
-    connected.notify_one();
+    client_connect.store(true);
+    client_connect.notify_one();
 
     // MAKE THIS CONNECTION NON-BLOCKING.
     std::vector<int> client_connections;
@@ -39,8 +43,6 @@ void Server::start(){
 }
 
 void Server::acceptClients() {
-    // create nw ;
-    connected.wait(false);
 
     int client_socket = socket(AF_INET, SOCK_STREAM, 0);
     if(client_socket < 0) return; // stop program.
@@ -56,12 +58,20 @@ void Server::acceptClients() {
     bind(client_socket, (const sockaddr *)&addr, sizeof(addr)); // bind the address to this socket.
 
     make_fd_nb(client_socket);
-
-    if(listen(client_socket, SOMAXCONN)< 0){
+   
+    if(listen(client_socket, SOMAXCONN)< 0)
         log.die("listen()");
-    }
-    log.message("server ready to receive connections on " + std::to_string(SERVER_CLIENT_PORT));
 
+    socklen_t len = sizeof(addr);
+    getsockname(client_socket, (struct sockaddr *)&addr, &len);
+    client_port = ntohs(addr.sin_port);
+    //now other thread can connect to master
+    master_connect.store(true);
+    master_connect.notify_one();
+
+    log.message("Server ready to receive clients on " + to_string(client_port));
+
+    client_connect.wait(false);
 
     while (true){ // accept new client and service its request.
         struct sockaddr_in client;
