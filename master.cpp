@@ -221,7 +221,6 @@ void Master::startAcceptingClients(){
         }
         
         if(request_type == MASTER_CLIENT::UPLOAD) { // upload
-            std::cout << "Received upload request" << std::endl;
             // read filename and filesize.
             uint32_t filesize;
             read(clientfd, &filesize, sizeof(filesize));
@@ -248,18 +247,14 @@ void Master::startAcceptingClients(){
             { // TODO: populate chunk_buffer based on chunk availability.
                 auto& f = all_files[handle];
 
-                std::cout << "server size: " << chunk_servers.size() << std::endl;
-            
                 uint32_t chunk_size = (filesize + chunk_servers.size()-1)/chunk_servers.size();
-                std::cout << "Chunk size: " << chunk_size << std::endl;
                 // todo: change the order of chunk servers for each file.
                 // if the last server doesn't have any chunk, the loop will exit without adding to metadata.
                 for (ssize_t i = 0, rem_sz = filesize; (i < chunk_servers.size()) && (rem_sz > 0); 
                                                 i++, rem_sz-= chunk_size){
                     auto file_server = chunk_servers[i];
                     file_server->info.used -= chunk_size;
-                    uint32_t sz = (rem_sz >= chunk_size) ? chunk_size : (chunk_size - rem_sz);
-                    std::cout << "cs: " << sz << std::endl;
+                    uint32_t sz = (rem_sz >= chunk_size) ? chunk_size : rem_sz;
                     f.chunks.emplace_back(file_server->address, sz, file_server->port);
                 }
                 f.filename = std::string(filename_buffer.begin(), filename_buffer.end());

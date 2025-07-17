@@ -81,7 +81,7 @@ void Server::acceptClients() {
             log.die("accept()");
         }
         
-        log.message("Client connected" + to_string(client.sin_addr.s_addr));
+        log.message("Client connected " + to_string(client.sin_addr.s_addr));
         
         /*
             upload: file_handle(4) chunk_id(4) chunk_size(8) <data>......
@@ -94,19 +94,17 @@ void Server::acceptClients() {
 
         if (request == SERVER_CLIENT::UPLOAD) { // upload request
 
-            uint32_t buff[3] = {0};
-            read (client_fd, buff, sizeof(buff));
+            uint32_t buff[3] = {0}; // file_handle, chunk_id, chunk_size
+            read (client_fd, (void *)buff, sizeof(buff));
 
             uint32_t f_handle = buff[0], chunk_id = buff[1], chunk_size = buff[2];
             log.message("upload, file-handle: " + std::to_string(f_handle) + ", chunk id: " + 
                 std::to_string(chunk_id) + " chunk size: " + std::to_string(chunk_size));
 
             std::string file_name = file_prefix + to_string(server_id) + "_" + to_string(f_handle) + "_" + to_string(chunk_id);
-            std::cout << file_name << std::endl;
 
             int chunk_fd = open(file_name.data(), O_CREAT|O_WRONLY, 0644); // open file with permissions.
             if(chunk_fd < 0){
-                std::cout << "Error no " << errno << std::endl;
                 // return error response to client.
                 auto response = SERVER_CLIENT::ERROR;
                 write(client_fd, (void *)&response, sizeof(response));
@@ -121,7 +119,6 @@ void Server::acceptClients() {
 
             size_t ncopied = 0, nread = 0, nleft = chunk_size;
             Byte *buffer = (Byte *)malloc(chunk_size);
-            std::cout << "Server ready to receive file chunk " << std::endl;
 
             // /* read to buffer from socket and write it to to file. */
             // while((ncopied < chunk_size) && ((nread = read(client_fd, (void *)buffer, chunk_size) > 0))) {
@@ -132,8 +129,6 @@ void Server::acceptClients() {
             write(chunk_fd, (void *)buffer, nread);
             
             free(buffer);
-            std::cout << "Server received chunk " << nread << " bytes." << std::endl;
-            
             // close(chunk_fd); 
             
             // create file object for this chunk.

@@ -5,58 +5,30 @@ class Client {
     Logger logger;
 
     bool sendChunk(int connectionFd, const file_chunk& chunk){
-        // // mmap the page into memory
-        // void *src;
-        // if((src = mmap(nullptr, chunk.size, PROT_READ, MAP_SHARED, fd, chunk.offset))){
-        //     logger.msg_errno("mmap error for input");
-        //     return ;
-        // }
         
         enum SERVER_CLIENT response;
         read(connectionFd, (void *)&response, sizeof(response));
-        if(response == SERVER_CLIENT::ERROR) return false;
+        if(response == SERVER_CLIENT::ERROR) return false; // server shoudl say OKAY.
+        std::cout << "Server said okay to client request" << std::endl;
 
         // use read sys call 
         Byte buffer[1024*16]; // temporary buffer. 16 kB
-        ssize_t nread = 0, nleft = chunk.size;
+        ssize_t nread = 0, nleft = chunk.size, nsent = 0;
         while (nleft> 0) {
-            if ((nread = read(chunk.fd, buffer, sizeof(buffer))) < 0){
+            if ((nread = read(chunk.fd, buffer, chunk.size)) < 0){
                 logger.msg_errno("read()");
                 return false;
             }
             if(nread == 0) break;
             nleft -= nread;
+            nsent += nread;
             write(connectionFd, buffer, nread);
         }
-        std::cout << "Sent file data to the server" << std::endl;
+        std::cout << "Sent file data to the server: " << nsent << " bytes." << std::endl;
         // if the write doesn't complete, server will send error.
         read(connectionFd, (void *)&response, sizeof(response));
         return response == SERVER_CLIENT::OKAY;
     }
-
-
-    // void prepare(const file_stat& file_info, int master_fd){
-    //     uint16_t request_type;
-    //     size_t payloadSize = sizeof(request_type) + sizeof(file_info.file_size);
-    //     vector<Byte> buffer(payloadSize); // store extra for response.
-
-    //     memcpy(buffer.data(), &request_type, sizeof(request_type));
-    //     memcpy(&buffer[2], &file_info.file_size, sizeof(file_info.file_size));
-
-    //     ssize_t nwrite = write(master_fd, buffer.data(), payloadSize);
-        
-    //     // expect from master
-    //     buffer.clear();
-
-    //     ssize_t nread = read(master_fd, buffer.data(), sizeof(request_type));
-    //     uint16_t nservers;
-    //     memcpy(&nservers, buffer.data(), sizeof(request_type));
-
-    //     buffer.resize(nservers * sizeof(uint64_t));
-        
-    //     nread = read(master_fd, buffer.data(), nservers * sizeof(uint64_t));
-         
-    // }
 
 public:
     void upload(const string& filename) {
@@ -131,9 +103,7 @@ public:
         for(uint32_t i = 0, offset = 0; (i < nservers) && transfer_completed; i++, offset += sizeof(ip_addr)){
             
             auto [server_addr, chunk_size, port] = servers[i];
-            // ip_addr server_addr = servers[i].first;
-            // uint32_t chunk_size = servers[i].second;
-
+            
             int cs_fd = socket(AF_INET, SOCK_STREAM, 0);
 
             struct sockaddr_in addr;
@@ -156,6 +126,7 @@ public:
             file_chunk fc;
             fc.fd = file_fd;
             fc.offset = i*chunk_size;
+            fc.size = chunk_size;
 
             if (!sendChunk(cs_fd, fc)) transfer_completed = false;
 
