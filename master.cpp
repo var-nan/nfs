@@ -111,6 +111,17 @@ void Master::start() {
                 // call destructors.
             }
         }
+        // propagate deleted file handles to servers.
+        std::lock_guard<std::mutex> lg(m);
+        if(!deleted_files.empty()){
+            for (const ServerConnection *conn : chunk_servers){
+                auto status = MASTER_SERVER::FILE_DELETE;
+                uint32_t n = deleted_files.size();
+                write(conn->connection.fd, (const void *)&status, sizeof(status));
+                write(conn->connection.fd, (const void *)&n, sizeof(n));
+                write(conn->connection.fd, (const void *)deleted_files.data(), sizeof(deleted_files[0]) * n);
+            }
+        }
     } // should never reach here. poll() is a blocking call. 
 }
 
@@ -193,7 +204,7 @@ void Master::startAcceptingClients(){
     std::vector<Byte> filename_buffer;
     std::vector<std::pair<ip_addr, uint32_t>> chunks_buffer;
 
-    uint32_t next_handle = 0;
+    handle_t next_handle = 0;
 
     // TODO: instead of multiple read/write calls, use a very large buffer.
 
@@ -270,22 +281,14 @@ void Master::startAcceptingClients(){
             write(clientfd, chunks.data(), sizeof(chunks[0])* nservers);
         }
         else if (request_type == MASTER_CLIENT::UPLOAD_ACK){ // upload ack
-
-        }
-        else if (request_type == MASTER_CLIENT::UPLOAD_FAILED){
-            // if uploading failed, then undo bookeeping for the file.
-            // inform all servers and remove file handle.
-            uint32_t fhandle;
-            read(clientfd, (void *)&fhandle, sizeof(fhandle));
-            // so communication must be two-sided. ughhhh.
-
+            // no need to do anything.
         }
         else if (request_type == MASTER_CLIENT::DOWNLOAD){ // download
             uint32_t handle;
             read(clientfd, &handle, sizeof(handle));
 
             auto pos = all_files.find(handle);
-            if(pos == all_files.end()){
+            if((pos == all_files.end()) || (pos->second.is_deleted)){
                 auto status = MASTER_CLIENT::FILE_NOT_FOUND;
                 write(clientfd, &status, sizeof(status)); 
             }
@@ -298,11 +301,63 @@ void Master::startAcceptingClients(){
                 write(clientfd, chunks.data(), sizeof(chunks[0]) * nservers);
             }
         }
+        else if ((request_type == MASTER_CLIENT::FILE_DELETE) || 
+                        (request_type == MASTER_CLIENT::UPLOAD_FAILED)){
+            
+            handle_t handle;
+            read(clientfd, (void *)&handle, sizeof(handle));
+
+            std::cout << "delete - file handle: " << handle << std::endl;
+
+            auto pos = all_files.find(handle);
+            auto status = MASTER_CLIENT::FILE_NOT_FOUND;
+            if (pos != all_files.end()){
+                status = MASTER_CLIENT::OKAY;
+                pos->second.is_deleted = true; // delete the file later.
+            }
+            write(clientfd, (const void *)&status, sizeof(status));
+        }
+        else if (request_type == MASTER_CLIENT::LIST_ALL_FILES){
+            // send list of all files along with their handles
+            uint32_t nfiles = all_files.size();
+            uint32_t file_names_size = 0;
+            for (const auto& [k,v] : all_files)  file_names_size += v.filename.size();
+            // buffer is nfiles (handle, filenamesize, filename) , (handle2, filenamesize, filename2) ... 
+            size_t buffer_size = sizeof(nfiles) + nfiles *(sizeof(handle_t) + sizeof(uint32_t)) + file_names_size;
+            std::vector<Byte> buffer(buffer_size);
+            memcpy((void *)buffer.data(), &nfiles, sizeof(nfiles));
+            uint32_t offset = sizeof(nfiles);
+            for (const auto& [k,v] : all_files){
+                uint32_t filenamesize = v.filename.size();
+                memcpy(buffer.data()+ offset , (void *)&k, sizeof(k));
+                offset += sizeof(k);
+                memcpy(buffer.data()+ offset, (void *)&filenamesize, sizeof(filenamesize));
+                offset += sizeof(filenamesize);
+                memcpy(buffer.data() + offset, (void *)v.filename.data(), v.filename.size());
+                offset += filenamesize;
+            }
+            write(clientfd, (const void *)buffer.data(), buffer.size());
+        }
 
         close_conn:
             close(clientfd);
+
+        // delete the files that are marked as delete.
+        for (auto& p : all_files){
+            if (p.second.is_deleted){
+                deleteFile(p.first);
+            }
+        }
         
     }
+}
+
+void Master::deleteFile(handle_t handle){
+    // pass the handle to other thread, it should 
+    m.lock();
+    deleted_files.push_back(handle);
+    m.unlock();
+    all_files.erase(handle);
 }
 
 bool Master::is_enough_space(uint32_t filesize){

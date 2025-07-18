@@ -31,14 +31,37 @@ void Server::start(){
     // MAKE THIS CONNECTION NON-BLOCKING.
     std::vector<int> client_connections;
     std::vector<struct pollfd> poll_args;
+    make_fd_nb(master_fd);
 
     size_t hb = 0;
     while (true){
+        poll_args.clear();
+        struct pollfd master_socket = {master_fd, POLLIN, 0};
+        poll_args.push_back(master_socket);
+
+        int rv = poll(poll_args.data(), poll_args.size(), 1000);
+        if ((rv > 0) && (master_socket.revents)){
+            enum MASTER_SERVER status;
+            uint32_t ndeleted;
+            read(master_fd, (void *)&status, sizeof(status));
+            assert(status == MASTER_SERVER::FILE_DELETE);
+            read(master_fd, (void *)&ndeleted, sizeof(ndeleted));
+            std::vector<handle_t> deleted(ndeleted, 0);
+            read(master_fd, (void *)deleted.data(), sizeof(deleted[0]) * ndeleted);
+
+            for (auto handle : deleted){
+                const auto& t = files[handle];
+                std::string filename = file_prefix + std::to_string(server_id) + "_" 
+                        + std::to_string(handle) + "_" + std::to_string(t.chunk_id);
+                std::cout << "Deleting file: " << filename << std::endl;
+                unlink(filename.data()); // this actually decrement link count to the file. 
+                files.erase(handle);
+            }
+        }
+
         // periodically send heartbeats to the master.
-        sleep(2);
+        // sleep(2);
         write(master_fd, (const void *)&this_server_info, sizeof(this_server_info));
-        // std::cout << "sent heartbeat " << hb++ << std::endl;
-        // TODO: Handle error later.
     }
 }
 

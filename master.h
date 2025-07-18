@@ -16,6 +16,9 @@ class Master{
     typedef struct {
         std::string filename;
         std::vector<std::tuple<ip_addr, uint32_t, uint32_t>> chunks;
+        bool is_deleted = false; 
+        // when the file needs to be deleted, the client should send a delete request to the master.
+        // clean up thread will send the update to the servers.
     } client_file;
 
     std::vector<ServerConnection *> chunk_servers;
@@ -23,9 +26,13 @@ class Master{
 
     size_t available_space;
 
-    std::unordered_map<uint32_t, client_file> all_files; // mapping of file handle and chunks information.
+    std::unordered_map<handle_t, client_file> all_files; // mapping of file handle and chunks information.
 
     std::atomic<bool> acceptClients = {false};
+    std::vector<handle_t> deleted_files;
+    std::mutex m;
+
+    void deleteFile(handle_t handle);
     
 public:
 

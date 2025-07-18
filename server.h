@@ -14,7 +14,7 @@ public:
 
 class Server{
 
-    std::unordered_map<uint32_t, FileObject> files;
+    std::unordered_map<handle_t, FileObject> files;
     int master_fd;
     uint32_t server_id;
     std::atomic<bool> client_connect = {false};
