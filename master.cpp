@@ -337,6 +337,7 @@ void Master::startAcceptingClients(){
                 offset += filenamesize;
             }
             write(clientfd, (const void *)buffer.data(), buffer.size());
+            logger.message("List files - sent " + std::to_string(nfiles) + " files.");
         }
 
         close_conn:

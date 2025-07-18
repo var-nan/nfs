@@ -147,7 +147,42 @@ public:
         close(master_fd);
     }
 
-    // void listFiles();
+    void listFiles(){
+        int master_fd = socket(AF_INET, SOCK_STREAM, 0);
+        if(master_fd < 0)
+            logger.die("socket()");
+
+        struct sockaddr_in master_addr;
+        master_addr.sin_family = AF_INET;
+        master_addr.sin_port = ntohs(MASTER_CLIENT_PORT);
+        master_addr.sin_addr.s_addr = ntohl(INADDR_LOOPBACK);
+        if (connect(master_fd, (const sockaddr *)&master_addr, sizeof(master_addr))){
+            logger.die("master connect()");
+            return; // couldn't connect to master, so fail operation.
+        }
+        
+        enum MASTER_CLIENT request = MASTER_CLIENT::LIST_ALL_FILES;
+        write(master_fd, &request, sizeof(request));
+        
+        // // wait for response
+        // enum MASTER_CLIENT response;
+        // read(master_fd, &response, sizeof(response));
+        
+        uint32_t nfiles;
+        read(master_fd, &nfiles, sizeof(nfiles));
+
+        for(uint32_t i = 0; i < nfiles; i++){
+            uint32_t handle;
+            read(master_fd, &handle, sizeof(handle));
+            uint32_t filenamesize;
+            read(master_fd, &filenamesize, sizeof(filenamesize));
+            std::string filename;
+            filename.resize(filenamesize);
+            read(master_fd, filename.data(), filenamesize);
+
+            std::cout << handle << " " << filename << std::endl;
+        }
+    }
     // void donwload(int fileHandle);
 };
 
@@ -157,5 +192,6 @@ int main(){
 
     Client client;
     client.upload(filename);
+    client.listFiles(); 
     // client.listFiles();
 }

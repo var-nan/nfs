@@ -93,6 +93,7 @@ public:
 #define MASTER_SERVER_PORT 22345
 #define SERVER_CLIENT_PORT 32345
 
+typedef uint32_t handle_t;
 
 typedef struct {
     uint32_t size; // size of chunk.
@@ -144,11 +145,14 @@ enum class MASTER_CLIENT : uint32_t{
     UPLOAD = 0X7U,
     DOWNLOAD = 0X8U,
     UPLOAD_ACK = 0X9U,
-    UPLOAD_FAILED = 0xAU
+    UPLOAD_FAILED = 0xAU,
+    FILE_DELETE = 0xBU,
+    LIST_ALL_FILES = 0xCU
 };
 
 enum class MASTER_SERVER : uint32_t{
     OKAY = 0X2u,
+    FILE_DELETE = 0x3u
 };
 
 enum class SERVER_CLIENT : uint32_t{
