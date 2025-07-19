@@ -9,7 +9,6 @@ class Client {
         enum SERVER_CLIENT response;
         read(connectionFd, (void *)&response, sizeof(response));
         if(response == SERVER_CLIENT::ERROR) return false; // server shoudl say OKAY.
-        std::cout << "Server said okay to client request" << std::endl;
 
         // use read sys call 
         Byte buffer[1024*16]; // temporary buffer. 16 kB
@@ -24,10 +23,29 @@ class Client {
             nsent += nread;
             write(connectionFd, buffer, nread);
         }
-        std::cout << "Sent file data to the server: " << nsent << " bytes." << std::endl;
+        // std::cout << "Sent file data to the server: " << nsent << " bytes." << std::endl;
         // if the write doesn't complete, server will send error.
         read(connectionFd, (void *)&response, sizeof(response));
         return response == SERVER_CLIENT::OKAY;
+    }
+
+
+    int connectToMaster() {
+        int master_fd = socket(AF_INET, SOCK_STREAM,0);
+        if(master_fd < 0){
+            logger.die("socket()");
+            return -1;
+        }
+
+        struct sockaddr_in master_addr;
+        master_addr.sin_family = AF_INET;
+        master_addr.sin_port = ntohs(MASTER_CLIENT_PORT);
+        master_addr.sin_addr.s_addr = ntohl(INADDR_LOOPBACK);
+        if (connect(master_fd, (const sockaddr *)&master_addr, sizeof(master_addr))){
+            logger.die("master connect()");
+            return -1; // couldn't connect to master, so fail operation.
+        }
+        return master_fd;
     }
 
 public:
@@ -72,7 +90,7 @@ public:
             logger.die("write()");
             return ;
         }
-        std::cout << "Sent upload request - filesize: " << fs.file_size << " name: " << fs.file_name.size() << std::endl;
+        // std::cout << "Sent upload request - filesize: " << fs.file_size << " name: " << fs.file_name.size() << std::endl;
         // return ;
 
        /* response: <status> <file_handle> <nservers> <server_1,size_1> .... <server_n, size_n>
@@ -183,7 +201,41 @@ public:
             std::cout << handle << " " << filename << std::endl;
         }
     }
-    // void donwload(int fileHandle);
+
+    void delete_file(handle_t handle) {
+        int master_fd = connectToMaster();
+
+        uint32_t buffer[2] = {static_cast<uint32_t>(MASTER_CLIENT::FILE_DELETE), handle};
+        write(master_fd, (const void *)buffer, sizeof(buffer));
+
+        enum MASTER_CLIENT response;
+        read(master_fd, (void *)&response, sizeof(response));
+        if (response == MASTER_CLIENT::OKAY){
+            std::cout << "file deleted" << std::endl;
+        }
+        else if (response == MASTER_CLIENT::FILE_NOT_FOUND){
+            std::cout << "file not found" << std::endl;
+        }
+        close(master_fd);
+    }
+
+    void download(handle_t handle){
+        // send donwload request to the file.
+        int masterfd = connectToMaster();
+
+        enum MASTER_CLIENT request = MASTER_CLIENT::DOWNLOAD;
+        uint32_t buffer[2] = {static_cast<uint32_t>(request), handle};
+        write(masterfd, (const void *)buffer, sizeof(buffer));
+
+        // should get a list of servers.
+        enum MASTER_CLIENT response;
+        read(masterfd, &response, sizeof(response));
+        
+        if(response == MASTER_CLIENT::FILE_FOUND){
+            // read server information.
+        }
+        close(masterfd);
+    }
 };
 
 
@@ -191,7 +243,24 @@ int main(){
     string filename = "/home/nandgate/javadocs/cppdocs/sharder/data/chunk_3";
 
     Client client;
-    client.upload(filename);
-    client.listFiles(); 
+    // client.upload(filename);
+    // client.listFiles();
+
+    std::string msg  = "\n\nEnter a number:\n1 - upload a file\n2 - list all files\n";
+        msg += "3 - delete file (enter file handle)\n";
+
+    int input;
+    while (true) {
+        std::cout << msg << endl;
+        std::cin >> input;
+        if(input == 0) break;
+        if (input == 1) client.upload(filename);
+        else if (input == 2) client.listFiles();
+        else if (input == 3) {
+            handle_t handle;
+            std::cin >> handle;
+            client.delete_file(handle);
+        }
+    }
     // client.listFiles();
 }

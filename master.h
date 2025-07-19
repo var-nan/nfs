@@ -30,10 +30,8 @@ class Master{
 
     std::atomic<bool> acceptClients = {false};
     std::vector<handle_t> deleted_files;
-    std::mutex m;
+    std::mutex m; // to access `deleted_files` vector.
 
-    void deleteFile(handle_t handle);
-    
 public:
 
     Master() = default;

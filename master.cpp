@@ -115,12 +115,14 @@ void Master::start() {
         std::lock_guard<std::mutex> lg(m);
         if(!deleted_files.empty()){
             for (const ServerConnection *conn : chunk_servers){
+                // send all handles at once.
                 auto status = MASTER_SERVER::FILE_DELETE;
                 uint32_t n = deleted_files.size();
                 write(conn->connection.fd, (const void *)&status, sizeof(status));
                 write(conn->connection.fd, (const void *)&n, sizeof(n));
                 write(conn->connection.fd, (const void *)deleted_files.data(), sizeof(deleted_files[0]) * n);
             }
+            deleted_files.clear();
         }
     } // should never reach here. poll() is a blocking call. 
 }
@@ -307,13 +309,17 @@ void Master::startAcceptingClients(){
             handle_t handle;
             read(clientfd, (void *)&handle, sizeof(handle));
 
-            std::cout << "delete - file handle: " << handle << std::endl;
+            logger.message("delete/upload failed - file handle: " + std::to_string(handle));
 
             auto pos = all_files.find(handle);
             auto status = MASTER_CLIENT::FILE_NOT_FOUND;
             if (pos != all_files.end()){
                 status = MASTER_CLIENT::OKAY;
-                pos->second.is_deleted = true; // delete the file later.
+                all_files.erase(pos);
+                std::lock_guard<std::mutex> lg(m);
+                /* This only removes the file record in `all_files`. Actual deletion happens in 
+                    other thread by propagating the handle to all the servers. */
+                deleted_files.push_back(handle);
             }
             write(clientfd, (const void *)&status, sizeof(status));
         }
@@ -322,6 +328,12 @@ void Master::startAcceptingClients(){
             uint32_t nfiles = all_files.size();
             uint32_t file_names_size = 0;
             for (const auto& [k,v] : all_files)  file_names_size += v.filename.size();
+            // nfiles should not include the deleted files.
+            // for (const auto& [k,v] : all_files) {
+            //     if(v.is_deleted) continue;
+            //     nfiles++;
+            //     file_names_size += v.filename.size();
+            // }
             // buffer is nfiles (handle, filenamesize, filename) , (handle2, filenamesize, filename2) ... 
             size_t buffer_size = sizeof(nfiles) + nfiles *(sizeof(handle_t) + sizeof(uint32_t)) + file_names_size;
             std::vector<Byte> buffer(buffer_size);
@@ -342,24 +354,9 @@ void Master::startAcceptingClients(){
 
         close_conn:
             close(clientfd);
-
-        // delete the files that are marked as delete.
-        for (auto& p : all_files){
-            if (p.second.is_deleted){
-                deleteFile(p.first);
-            }
-        }
-        
-    }
+ }
 }
 
-void Master::deleteFile(handle_t handle){
-    // pass the handle to other thread, it should 
-    m.lock();
-    deleted_files.push_back(handle);
-    m.unlock();
-    all_files.erase(handle);
-}
 
 bool Master::is_enough_space(uint32_t filesize){
     return filesize < available_space;
