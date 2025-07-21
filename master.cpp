@@ -117,10 +117,18 @@ void Master::start() {
             for (const ServerConnection *conn : chunk_servers){
                 // send all handles at once.
                 auto status = MASTER_SERVER::FILE_DELETE;
-                uint32_t n = deleted_files.size();
-                write(conn->connection.fd, (const void *)&status, sizeof(status));
-                write(conn->connection.fd, (const void *)&n, sizeof(n));
-                write(conn->connection.fd, (const void *)deleted_files.data(), sizeof(deleted_files[0]) * n);
+                std::vector<uint32_t> buffer(2 + deleted_files.size());
+                buffer[0] = static_cast<uint32_t>(status);
+                buffer[1] = static_cast<uint32_t>(deleted_files.size()); // n files to delete
+                memcpy(buffer.data()+2, deleted_files.data(), (deleted_files.size() * sizeof(deleted_files[0])));
+                assert(buffer.size() == (2+deleted_files.size()));
+                size_t buff_size = buffer.size() * sizeof(buffer[0]);
+
+                if(ssize_t nwrite = write(conn->connection.fd, buffer.data(), buff_size); nwrite != (buff_size)){
+                    logger.die("Incomplete write: " + std::to_string(nwrite) + " instead of " + std::to_string(buff_size));
+                    return ;
+                }
+                std::cout << "Sent delete request to server" << std::endl;
             }
             deleted_files.clear();
         }

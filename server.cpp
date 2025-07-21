@@ -29,9 +29,8 @@ void Server::start(){
     client_connect.notify_one();
 
     // MAKE THIS CONNECTION NON-BLOCKING.
-    std::vector<int> client_connections;
     std::vector<struct pollfd> poll_args;
-    make_fd_nb(master_fd);
+    // make_fd_nb(master_fd);
 
     size_t hb = 0;
     while (true){
@@ -40,22 +39,35 @@ void Server::start(){
         poll_args.push_back(master_socket);
 
         int rv = poll(poll_args.data(), poll_args.size(), 1000);
-        if ((rv > 0) && (master_socket.revents)){
+        if ((rv > 0) && (poll_args[0].revents & POLLIN)){
+            std::cout << "master sent some files to delete" << std::endl;
             enum MASTER_SERVER status;
             uint32_t ndeleted;
-            read(master_fd, (void *)&status, sizeof(status));
+            if(ssize_t nread = read(master_fd, (void *)&status, sizeof(status)); nread != sizeof(status)) {
+                log.die("Incomplete read: " + std::to_string(nread) + " instead of " + std::to_string(sizeof(status)));
+                return;
+            }
             assert(status == MASTER_SERVER::FILE_DELETE);
-            read(master_fd, (void *)&ndeleted, sizeof(ndeleted));
-            std::vector<handle_t> deleted(ndeleted, 0);
-            read(master_fd, (void *)deleted.data(), sizeof(deleted[0]) * ndeleted);
+            if(ssize_t nread = read(master_fd, (void *)&ndeleted, sizeof(ndeleted)); nread < 0){
+                log.die("Incomplete read: " + std::to_string(nread) + " instead of " + std::to_string(sizeof(ndeleted)));
+                return ;
+            }
+            std::vector<handle_t> deleted(ndeleted);
+            size_t deleted_size = sizeof(deleted[0]) * deleted.size();
+            if(ssize_t nread = read(master_fd, (void *)deleted.data(), deleted_size); nread != deleted_size){
+                log.die("Incomplete read: " + std::to_string(nread) + " instead of " + std::to_string(deleted_size));
+                return;
+            }
+
+            std::cout << "Deleting " << deleted.size() << " files" << std::endl;
 
             for (auto handle : deleted){
                 const auto& t = files[handle];
                 std::string filename = file_prefix + std::to_string(server_id) + "_" 
                         + std::to_string(handle) + "_" + std::to_string(t.chunk_id);
-                std::cout << "Deleting file: " << filename << std::endl;
                 unlink(filename.data()); // this actually decrement link count to the file. 
                 files.erase(handle);
+                std::cout << "Deleted: " << filename << std::endl;
             }
         }
 

@@ -15,8 +15,9 @@ class Master{
     */
     typedef struct {
         std::string filename;
-        std::vector<std::tuple<ip_addr, uint32_t, uint32_t>> chunks;
+        std::vector<std::tuple<ip_addr, handle_t, uint32_t>> chunks;
         bool is_deleted = false; 
+        size_t hash_value = 0;
         // when the file needs to be deleted, the client should send a delete request to the master.
         // clean up thread will send the update to the servers.
     } client_file;
