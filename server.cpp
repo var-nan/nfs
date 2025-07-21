@@ -43,7 +43,7 @@ void Server::start(){
             std::cout << "master sent some files to delete" << std::endl;
             enum MASTER_SERVER status;
             uint32_t ndeleted;
-            if(ssize_t nread = read(master_fd, (void *)&status, sizeof(status)); nread != sizeof(status)) {
+            if(ssize_t nread = read(master_fd, (void *)&status, sizeof(status)); (nread < 0) || (nread != sizeof(status))) {
                 log.die("Incomplete read: " + std::to_string(nread) + " instead of " + std::to_string(sizeof(status)));
                 return;
             }
@@ -153,19 +153,14 @@ void Server::acceptClients() {
             }
 
             size_t ncopied = 0, nread = 0, nleft = chunk_size;
-            Byte *buffer = (Byte *)malloc(chunk_size);
+            Byte buffer[1024 * 16];
 
-            // /* read to buffer from socket and write it to to file. */
-            // while((ncopied < chunk_size) && ((nread = read(client_fd, (void *)buffer, chunk_size) > 0))) {
-            //     write(chunk_fd, (const void *)buffer, nread);
-            //     ncopied += nread;
-            // }
-            nread = read(client_fd, (void *)buffer, chunk_size);
-            write(chunk_fd, (void *)buffer, nread);
-            
-            free(buffer);
-            // close(chunk_fd); 
-            
+            /* read to buffer from socket and write it to to file. */
+            while ((ncopied < chunk_size) && ((nread = read(client_fd, buffer, sizeof(buffer)))) && (nread > 0)) {
+                write(chunk_fd, buffer, nread);
+                ncopied += nread;
+            }
+
             // create file object for this chunk.
             FileObject fobj;
             fobj.f_handle = f_handle;
@@ -176,7 +171,7 @@ void Server::acceptClients() {
             // write response to client
             auto response = SERVER_CLIENT::OKAY;
             write(client_fd, static_cast<void *>(&response), sizeof(response));
-            cout << "Write completed" << endl;
+            log.message(file_name + ": write complete.");
         }
         else if (request == SERVER_CLIENT::DOWNLOAD) { // read request.
 

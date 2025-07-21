@@ -14,16 +14,21 @@ class Client {
         Byte buffer[1024*16]; // temporary buffer. 16 kB
         ssize_t nread = 0, nleft = chunk.size, nsent = 0;
         while (nleft> 0) {
-            if ((nread = read(chunk.fd, buffer, chunk.size)) < 0){
+            if ((nread = read(chunk.fd, buffer, sizeof(buffer))) < 0){
                 logger.msg_errno("read()");
+                std::cout << "Error no: " << errno << std::endl;
                 return false;
             }
             if(nread == 0) break;
             nleft -= nread;
             nsent += nread;
-            write(connectionFd, buffer, nread);
+            ssize_t nwrite;
+            if (nwrite = write(connectionFd, buffer, nread); nwrite != nread){
+                logger.msg_errno("read()");
+                return false;
+            }
         }
-        // std::cout << "Sent file data to the server: " << nsent << " bytes." << std::endl;
+        std::cout << "Sent file data to the server: " << nsent << " bytes." << std::endl;
         // if the write doesn't complete, server will send error.
         read(connectionFd, (void *)&response, sizeof(response));
         return response == SERVER_CLIENT::OKAY;
@@ -143,7 +148,7 @@ public:
 
             file_chunk fc;
             fc.fd = file_fd;
-            fc.offset = i*chunk_size;
+            fc.offset = i*chunk_size; // TODO: when moved to multithreaded, move this to offset.
             fc.size = chunk_size;
 
             if (!sendChunk(cs_fd, fc)) transfer_completed = false;
@@ -240,7 +245,7 @@ public:
 
 
 int main(){
-    string filename = "/home/nandgate/javadocs/cppdocs/sharder/data/chunk_3";
+    string filename = "/home/nandgate/javadocs/cppdocs/sharder/data/new_text_file";
 
     Client client;
     // client.upload(filename);

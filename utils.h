@@ -172,7 +172,7 @@ public:
     
     Logger(std::string name) : entity{name}{}
 
-    void msg_errno(const string& message){ std::cout << message << std::endl;}
+    void msg_errno(const string& message){ std::cout << message << " "<< errno << std::endl;}
     void die(const string& message) {
         std::cout << message << std::endl;
     }
@@ -181,6 +181,11 @@ public:
         std::cout << message << std::endl; 
     }
 };
+
+void display_error(int eno){
+    if(eno == EBADF)
+        std::cout << "File descriptor is not valid or not opened for reading" << std::endl;
+}
 
 
 #endif // UTILS_H
