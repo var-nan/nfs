@@ -180,6 +180,9 @@ public:
     void error(const string& message) {
         std::cout << message << std::endl; 
     }
+    void incomplete_read(size_t expected, size_t actual) {
+        std::cout << "Incomplete read(). Expected: " << expected << " bytes. Actual : " << actual << " bytes."<< std::endl;
+    }
 };
 
 void display_error(int eno){

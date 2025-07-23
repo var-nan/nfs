@@ -14,16 +14,16 @@ class Client {
         Byte buffer[1024*16]; // temporary buffer. 16 kB
         ssize_t nread = 0, nleft = chunk.size, nsent = 0;
         while (nleft> 0) {
-            if ((nread = read(chunk.fd, buffer, sizeof(buffer))) < 0){
+            // BUG:: last iteration is reading more data than it should,
+            // incrementing the marker. The size value should be changed for last iteration.
+            size_t buff_sz = (nleft > sizeof(buffer)) ? sizeof(buffer): nleft;
+            if ((nread = read(chunk.fd, buffer, buff_sz)) < 0){
                 logger.msg_errno("read()");
-                std::cout << "Error no: " << errno << std::endl;
                 return false;
             }
-            if(nread == 0) break;
             nleft -= nread;
             nsent += nread;
-            ssize_t nwrite;
-            if (nwrite = write(connectionFd, buffer, nread); nwrite != nread){
+            if (ssize_t nwrite = write(connectionFd, buffer, nread); nwrite != nread){
                 logger.msg_errno("read()");
                 return false;
             }
@@ -95,8 +95,6 @@ public:
             logger.die("write()");
             return ;
         }
-        // std::cout << "Sent upload request - filesize: " << fs.file_size << " name: " << fs.file_name.size() << std::endl;
-        // return ;
 
        /* response: <status> <file_handle> <nservers> <server_1,size_1> .... <server_n, size_n>
           if above response is valid if the status is OKAY.
@@ -224,7 +222,7 @@ public:
         close(master_fd);
     }
 
-    void download(handle_t handle){
+    void download(handle_t handle, std::string filename){
         // send donwload request to the file.
         int masterfd = connectToMaster();
 
@@ -235,10 +233,103 @@ public:
         // should get a list of servers.
         enum MASTER_CLIENT response;
         read(masterfd, &response, sizeof(response));
-        
-        if(response == MASTER_CLIENT::FILE_FOUND){
-            // read server information.
+
+        if(response == MASTER_CLIENT::FILE_NOT_FOUND){
+            std::cout << "File not found" << std::endl;
+            close(masterfd);
+            return;
         }
+        
+        // read server information.
+        uint32_t nservers;
+        if(ssize_t nread = read(masterfd, (void *)&nservers, sizeof(nservers)); nread < 0){
+            logger.msg_errno("read() while reading number of servers. Error: ");
+            return ;
+        }
+
+        std::vector<std::tuple<ip_addr, uint32_t, uint32_t>> servers(nservers);
+        // pavani nandhan.
+        size_t sz = sizeof(std::tuple<ip_addr, uint32_t, uint32_t>) * nservers;
+        if(ssize_t nread = read(masterfd, (void *)servers.data(), sz); nread != sz){
+            if (nread > 0) logger.incomplete_read(sz, nread);
+            else logger.msg_errno("read() while reading server information. Error: ");
+            return;    
+        }
+        
+        // open file for writing.
+        int fd = open(filename.data(), O_CREAT | O_RDWR, 0644);
+        if (fd < 0){
+            logger.msg_errno("open() while connecting to chunk server. Error: ");
+            return;
+        }
+
+        uint32_t handle_id = 0;
+        bool broken_download = false;
+
+        for (const auto& [addr, chunk_size, port] : servers){
+            // contact server 
+            int serverfd = socket(AF_INET, SOCK_STREAM, 0);
+            if(serverfd < 0){
+                broken_download = true;
+                break;
+            }
+
+            struct sockaddr_in sock_addr;
+            sock_addr.sin_port = ntohs(port);
+            sock_addr.sin_family = AF_INET;
+            sock_addr.sin_addr.s_addr = ntohl(addr);
+
+            if(connect(serverfd, (const sockaddr *)&sock_addr, sizeof(sock_addr))){
+                logger.die("Couldn't connect to server");
+                broken_download = true;
+                break;
+            }
+
+            // send request to server
+            uint32_t buff[3] = {static_cast<uint32_t>(SERVER_CLIENT::DOWNLOAD), handle, handle_id++};
+            if(ssize_t nwrite = write(serverfd, buff, sizeof(buff)); nwrite != sizeof(buff)){
+                broken_download = true;
+                break;
+            }
+
+            // read for response.
+            enum SERVER_CLIENT response;
+            if(ssize_t nread = read(serverfd, (void *)&response, sizeof(response)); nread < 0){
+                broken_download = true;
+                break;
+            }
+
+            if (response == SERVER_CLIENT::FILE_NOT_FOUND){
+                // break from this and delete the file.
+                broken_download = true;
+                break;
+            }
+
+            size_t ncopied = 0, nread = 0;
+            Byte buffer[16 * 1024];
+            while((ncopied < chunk_size) && ((nread = read(serverfd, buffer, sizeof(buffer))) != 0)){
+                if(nread < 1){
+                    // handle error
+                    broken_download = true;
+                    break;
+                }
+                ncopied += nread;
+                if(ssize_t nwrite = write(fd, buffer, nread); nwrite != nread){
+                    broken_download = true;
+                    break;
+                }
+            }
+        }
+
+        // if download is failed, delete the file.
+        if (broken_download) {
+            unlink(filename.data());
+            std::cout << "Download failed." << std::endl;
+        }
+        else {
+            std::cout << "File downloaded" << std::endl;
+        }
+
         close(masterfd);
     }
 };
@@ -248,11 +339,10 @@ int main(){
     string filename = "/home/nandgate/javadocs/cppdocs/sharder/data/new_text_file";
 
     Client client;
-    // client.upload(filename);
-    // client.listFiles();
 
     std::string msg  = "\n\nEnter a number:\n1 - upload a file\n2 - list all files\n";
         msg += "3 - delete file (enter file handle)\n";
+        msg += "4 - download a file (enter file handle)\n";
 
     int input;
     while (true) {
@@ -266,6 +356,10 @@ int main(){
             std::cin >> handle;
             client.delete_file(handle);
         }
+        else if (input == 4) {
+            handle_t handle;
+            std::cin >> handle;
+            client.download(handle, "downloaded");
+        }
     }
-    // client.listFiles();
 }
