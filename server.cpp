@@ -179,7 +179,9 @@ void Server::acceptClients() {
             read(client_fd, buff, sizeof(buff));
             uint32_t f_handle = buff[0], chunk_id = buff[1];
 
-            std::string filename = file_prefix + to_string(f_handle) + "_" + to_string(chunk_id);
+            std::string filename = file_prefix + std::to_string(server_id) + "_" + 
+                    std::to_string(f_handle) + "_" + std::to_string(chunk_id);
+            std::cout << "Opening file: " << filename << std::endl;
             
             int chunk_fd = open(filename.data(), O_RDONLY);
             if(chunk_fd < 0) {

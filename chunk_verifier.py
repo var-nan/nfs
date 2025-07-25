@@ -25,12 +25,12 @@ def compute_chunks_hash(chunks_ids, hash_algorithm='sha256'):
 dir_name = "/home/nandgate/javadocs/cppdocs/sharder/data/"
 chunks = ["0_0_0", "1_0_1", "2_0_2", "3_0_3"]
 chunks = [dir_name + c for c in chunks]
-original_hash = compute_original_file_hash(dir_name+"chunk_3")
-combined_hash = compute_chunks_hash(chunks)
+original_hash = compute_original_file_hash(dir_name+"new_text_file")
+downloaded_hash = compute_original_file_hash(dir_name+"downloaded")
 
 print(original_hash)
-print(combined_hash)
-if original_hash == combined_hash:
+print(downloaded_hash)
+if original_hash == downloaded_hash:
     print("Both files are equal")
 else :
     print("Both are different")

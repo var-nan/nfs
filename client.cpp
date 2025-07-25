@@ -10,19 +10,18 @@ class Client {
         read(connectionFd, (void *)&response, sizeof(response));
         if(response == SERVER_CLIENT::ERROR) return false; // server shoudl say OKAY.
 
-        // use read sys call 
         Byte buffer[1024*16]; // temporary buffer. 16 kB
         ssize_t nread = 0, nleft = chunk.size, nsent = 0;
         while (nleft> 0) {
-            // BUG:: last iteration is reading more data than it should,
-            // incrementing the marker. The size value should be changed for last iteration.
             size_t buff_sz = (nleft > sizeof(buffer)) ? sizeof(buffer): nleft;
             if ((nread = read(chunk.fd, buffer, buff_sz)) < 0){
                 logger.msg_errno("read()");
                 return false;
             }
+
             nleft -= nread;
             nsent += nread;
+
             if (ssize_t nwrite = write(connectionFd, buffer, nread); nwrite != nread){
                 logger.msg_errno("read()");
                 return false;
@@ -307,7 +306,9 @@ public:
 
             size_t ncopied = 0, nread = 0;
             Byte buffer[16 * 1024];
-            while((ncopied < chunk_size) && ((nread = read(serverfd, buffer, sizeof(buffer))) != 0)){
+            while ((ncopied < chunk_size) && (nread = read(serverfd, buffer, sizeof(buffer)) && (nread != 0))) {
+            // while((ncopied < chunk_size) && ((nread = read(serverfd, buffer, sizeof(buffer))) != 0)){
+            // TODO: extra bytes are written? find out how?
                 if(nread < 1){
                     // handle error
                     broken_download = true;
